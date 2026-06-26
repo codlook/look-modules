@@ -1,0 +1,96 @@
+use crypto;
+use json;
+use string;
+
+// jwt::sign($payload, $secret [, $opts]) → token string
+// jwt::verify($token, $secret) → payload assoc | null
+// jwt::decode($token) → payload assoc (imza doğrulamadan)
+//
+// $opts: ["alg" => "HS256", "exp" => 3600]  (exp: saniye cinsinden geçerlilik)
+
+function _b64url($s) {
+    return crypto::base64url_encode($s);
+}
+
+function _json($data) {
+    return json::encode($data);
+}
+
+function _parse_json($s) {
+    return json::decode($s);
+}
+
+function jwt_sign($payload, $secret, $opts) {
+    $alg = "HS256";
+    if ($opts != null && $opts["alg"] != null) {
+        $alg = $opts["alg"];
+    }
+
+    if ($alg != "HS256") {
+        return ["error" => "Desteklenmeyen algoritma: " . $alg . " (sadece HS256)"];
+    }
+
+    // Exp varsa payload'a ekle
+    if ($opts != null && $opts["exp"] != null) {
+        $now = date::timestamp();
+        $payload["iat"] = $now;
+        $payload["exp"] = $now + $opts["exp"];
+    }
+
+    $header = ["alg" => $alg, "typ" => "JWT"];
+
+    $header_b64  = _b64url(_json($header));
+    $payload_b64 = _b64url(_json($payload));
+
+    $signing_input = $header_b64 . "." . $payload_b64;
+    $sig_raw       = crypto::hmac_sha256_raw($signing_input, $secret);
+    $sig_b64       = crypto::base64url_encode($sig_raw);
+
+    return $signing_input . "." . $sig_b64;
+}
+
+function jwt_verify($token, $secret) {
+    $parts = string::split($token, ".");
+    if (count($parts) != 3) {
+        return null;
+    }
+
+    $header_b64  = $parts[0];
+    $payload_b64 = $parts[1];
+    $sig_given   = $parts[2];
+
+    // İmzayı doğrula
+    $signing_input = $header_b64 . "." . $payload_b64;
+    $sig_raw       = crypto::hmac_sha256_raw($signing_input, $secret);
+    $sig_expected  = crypto::base64url_encode($sig_raw);
+
+    if (!crypto::constant_compare($sig_given, $sig_expected)) {
+        return null;
+    }
+
+    // Payload decode
+    $payload_json = crypto::base64url_decode($payload_b64);
+    $payload      = _parse_json($payload_json);
+
+    if ($payload == null) {
+        return null;
+    }
+
+    // Exp kontrolü
+    if ($payload["exp"] != null) {
+        if (date::timestamp() > $payload["exp"]) {
+            return null;
+        }
+    }
+
+    return $payload;
+}
+
+function jwt_decode($token) {
+    $parts = string::split($token, ".");
+    if (count($parts) != 3) {
+        return null;
+    }
+    $payload_json = crypto::base64url_decode($parts[1]);
+    return _parse_json($payload_json);
+}
