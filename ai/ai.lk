@@ -1,0 +1,128 @@
+use http;
+use json;
+use string;
+
+// ── ai — LOOK resmi Claude (Anthropic) modulu ──────────────────────────────
+// Codlook Bilisim. Cekirdek http::stream primitifi uzerine saf LOOK.
+//
+//   ai_chat($messages, $opts)            → tam yanit (bloklamali)
+//   ai_stream($messages, $on_token, $opts) → token token akis
+//
+// $messages: [["role"=>"user","content"=>"..."], ...]
+// $opts:
+//   ["model"=>"claude-sonnet-5", "max_tokens"=>4096, "system"=>"...",
+//    "cache"=>true, "api_key"=>"...", "endpoint"=>"...(test icin)"]
+// api_key verilmezse ANTHROPIC_API_KEY ortam degiskeninden okunur.
+
+function _ai_key($opts) {
+    if ($opts != null && $opts["api_key"] != null) { return $opts["api_key"]; }
+    return env("ANTHROPIC_API_KEY", "");
+}
+
+function _ai_endpoint($opts) {
+    if ($opts != null && $opts["endpoint"] != null) { return $opts["endpoint"]; }
+    return "https://api.anthropic.com/v1/messages";
+}
+
+function _ai_model($opts) {
+    if ($opts != null && $opts["model"] != null) { return $opts["model"]; }
+    return "claude-sonnet-5";
+}
+
+function _ai_max($opts) {
+    if ($opts != null && $opts["max_tokens"] != null) { return $opts["max_tokens"]; }
+    return 4096;
+}
+
+function _ai_headers($key) {
+    return [
+        "x-api-key" => $key,
+        "anthropic-version" => "2023-06-01",
+        "content-type" => "application/json"
+    ];
+}
+
+// system: string veya (cache=true ise) cache_control'lu blok dizisi.
+function _ai_system($opts) {
+    if ($opts == null) { return null; }
+    if ($opts["system"] == null) { return null; }
+    $sys = $opts["system"];
+    if ($opts["cache"] == true) {
+        return [[ "type" => "text", "text" => $sys, "cache_control" => ["type" => "ephemeral"] ]];
+    }
+    return $sys;
+}
+
+function _ai_body($messages, $opts, $stream) {
+    $body = [
+        "model" => _ai_model($opts),
+        "max_tokens" => _ai_max($opts),
+        "messages" => $messages
+    ];
+    $sys = _ai_system($opts);
+    if ($sys != null) { $body["system"] = $sys; }
+    if ($stream == true) { $body["stream"] = true; }
+    return $body;
+}
+
+// ── ai_chat: bloklamali, tam yanit ─────────────────────────────────────────
+// Doner: ["text"=>string, "raw"=>assoc]  veya  ["error"=>string]
+function ai_chat($messages, $opts) {
+    $key = _ai_key($opts);
+    if ($key == "") { return ["error" => "ANTHROPIC_API_KEY yok"]; }
+
+    $resp = http::post_json(_ai_endpoint($opts), _ai_body($messages, $opts, false),
+                            _ai_headers($key), ["timeout" => 60000]);
+    if ($resp["status"] != 200) {
+        return ["error" => "API " . $resp["status"] . ": " . $resp["body"]];
+    }
+    $data = json::decode($resp["body"]);
+    $text = "";
+    if ($data != null && $data["content"] != null && $data["content"][0] != null) {
+        $text = $data["content"][0]["text"];
+    }
+    return ["text" => $text, "raw" => $data];
+}
+
+// ── ai_stream: token token akis ────────────────────────────────────────────
+// $on_token($metin) her token deltasi geldikce cagrilir.
+// Doner: ["ok"=>true]  veya  ["error"=>string]
+function ai_stream($messages, $on_token, $opts) {
+    $key = _ai_key($opts);
+    if ($key == "") { return ["error" => "ANTHROPIC_API_KEY yok"]; }
+
+    $json_body = json::encode(_ai_body($messages, $opts, true));
+
+    // SSE parse durumu — callback tarafindan degistirilir (yakalanmis mutable state)
+    $state = ["buf" => ""];
+
+    $resp = http::stream("POST", _ai_endpoint($opts), $json_body,
+                         _ai_headers($key), function($chunk) use ($state, $on_token) {
+        $state["buf"] = $state["buf"] . $chunk;
+        $parts = string::split($state["buf"], "\n");
+        $n = count($parts);
+        // son parca yarim kalmis olabilir → buffer'da tut
+        $state["buf"] = $parts[$n - 1];
+        $i = 0;
+        while ($i < $n - 1) {
+            $line = $parts[$i];
+            if (string::starts_with($line, "data: ")) {
+                $payload = string::substr($line, 6, string::len($line));
+                if ($payload != "[DONE]") {
+                    $ev = json::decode($payload);
+                    if ($ev != null && $ev["type"] == "content_block_delta") {
+                        if ($ev["delta"] != null && $ev["delta"]["text"] != null) {
+                            $on_token($ev["delta"]["text"]);
+                        }
+                    }
+                }
+            }
+            $i = $i + 1;
+        }
+    }, ["timeout" => 60000]);
+
+    if ($resp["status"] != 200) {
+        return ["error" => "API " . $resp["status"]];
+    }
+    return ["ok" => true];
+}
