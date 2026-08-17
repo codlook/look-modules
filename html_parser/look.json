@@ -1,0 +1,9 @@
+{
+  "description": "Dependency-free HTML scraping helper — find elements by tag and class, read attributes, and extract text. Built on the core html:: and string::regex_* builtins.",
+  "tags": ["html", "scraping", "parser"],
+  "icon": "🧹",
+  "color": "green",
+  "use": "use html_parser",
+  "version": "1.0.0",
+  "author": "codlook"
+}

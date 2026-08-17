@@ -1,0 +1,9 @@
+{
+  "description": "Official Claude (Anthropic) module — ai_chat() for a complete reply, ai_stream() for token-by-token streaming, with system prompts, prompt caching, model and max_tokens options. Pure LOOK, built on the core http:: primitives.",
+  "tags": ["ai", "claude", "anthropic", "llm"],
+  "icon": "🤖",
+  "color": "cyan",
+  "use": "use ai",
+  "version": "1.0.0",
+  "author": "codlook"
+}

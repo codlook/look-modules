@@ -1,0 +1,9 @@
+{
+  "description": "Create, verify and decode JSON Web Tokens — jwt_sign / jwt_verify / jwt_decode, HS256 and HS512, usable with a middleware pattern.",
+  "tags": ["auth", "token", "security"],
+  "icon": "🔐",
+  "color": "purple",
+  "use": "use jwt",
+  "version": "1.0.0",
+  "author": "codlook"
+}
