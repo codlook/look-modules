@@ -1,0 +1,62 @@
+use html;
+use string;
+
+// html_parser — a small, dependency-free HTML scraping helper for LOOK.
+// Built on the core html:: and string::regex_* builtins — no external library.
+//
+// html_parser_find_all($html, $tag, $class) -> [element_html, ...]
+//     Every <tag ... class="...class...">...</tag> element, as full HTML strings.
+// html_parser_find($html, $tag, $class)     -> element_html | ""
+//     The first matching element, or "" when none.
+// html_parser_attr($tag_html, $name)        -> value | ""
+//     The value of an attribute (e.g. "href", "src", "data-id") in a tag/fragment.
+// html_parser_text($html)                   -> string
+//     Visible text with tags removed (wraps html::strip) and trimmed.
+// html_parser_links($html)                  -> [href, ...]
+//     Every href value found in the fragment.
+//
+// Note: this is regex-based, best-effort parsing — LOOK has no built-in DOM tree.
+// It fits well-formed, reasonably stable markup. Always escape any value you render
+// back into a page with html::escape (text) or html::attr (attribute context).
+
+function html_parser_find_all($html, $tag, $class) {
+    // Match a whole <tag ... class="...class...">...</tag> element; match[0] is the element.
+    $pat = "<" . $tag . "[^>]*class=\"[^\"]*" . $class . "[^\"]*\"[^>]*>[\\s\\S]*?</" . $tag . ">";
+    $matches = string::regex_match_all($html, $pat);
+    $out = [];
+    foreach ($matches as $m) {
+        push($out, $m[0]);
+    }
+    return $out;
+}
+
+function html_parser_find($html, $tag, $class) {
+    $all = html_parser_find_all($html, $tag, $class);
+    if (count($all) > 0) {
+        return $all[0];
+    }
+    return "";
+}
+
+function html_parser_attr($tag_html, $name) {
+    // name="value" -> value  (first occurrence)
+    $pat = $name . "=\"([^\"]*)\"";
+    $matches = string::regex_match_all($tag_html, $pat);
+    if (count($matches) > 0) {
+        return $matches[0][1];
+    }
+    return "";
+}
+
+function html_parser_text($html) {
+    return string::trim(html::strip($html));
+}
+
+function html_parser_links($html) {
+    $matches = string::regex_match_all($html, "href=\"([^\"]*)\"");
+    $out = [];
+    foreach ($matches as $m) {
+        push($out, $m[1]);
+    }
+    return $out;
+}
