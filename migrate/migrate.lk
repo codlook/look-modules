@@ -1,6 +1,7 @@
 use db;
 use string;
 use date;
+use array;
 
 // migrate — a tiny, honest schema-migration runner for LOOK.
 // No ORM, no magic: you pass an ordered list of migrations as plain data and
@@ -12,9 +13,17 @@ use date;
 //   up : SQL to bring the schema forward. Multiple statements may be separated
 //        by ';' (each is run in turn).
 //
-// migrate_run($conn, $migrations)    -> [applied_id, ...]   newly applied, in order
-// migrate_status($conn, $migrations) -> [["id"=>.., "applied"=>bool], ...]
-// migrate_applied($conn)             -> [id, ...]            already-applied ids
+// migrate_run($conn, $migrations)      -> [applied_id, ...]   newly applied, in order
+// migrate_rollback($conn, $migrations) -> id | ""             undo the last applied one
+// migrate_status($conn, $migrations)   -> [["id"=>.., "applied"=>bool], ...]
+// migrate_applied($conn)               -> [id, ...]            already-applied ids
+// migrate_cli($conn, $migrations)      -> (prints)  env MIGRATE_CMD = up|down|status
+//
+// A migration may also carry an optional "down" body for rollback:
+//   ["id"=>"0002_posts", "up"=>"CREATE TABLE posts (...)", "down"=>"DROP TABLE posts"]
+//
+// Terminal use (no artisan needed): put your migrations in a small .lk runner and
+// call migrate_cli; then MIGRATE_CMD=up|down|status lk migrate.lk.
 //
 // The tracking table (_look_migrations) is created on first use. Its DDL uses
 // only VARCHAR columns so the same code runs on MySQL, PostgreSQL and SQLite.
@@ -82,4 +91,70 @@ function migrate_status($conn, $migrations) {
         push($out, ["id" => $m["id"], "applied" => migrate__is_applied($conn, $m["id"])]);
     }
     return $out;
+}
+
+// Undo the most recently applied migration: run its "down" body (if any) and drop
+// its tracking row, in one transaction. Returns the rolled-back id, or "" if there
+// was nothing applied. A migration with no "down" is simply un-tracked.
+function migrate_rollback($conn, $migrations) {
+    migrate__ensure($conn);
+    $applied = migrate_applied($conn);
+    if (count($applied) == 0) {
+        return "";
+    }
+    $last = $applied[count($applied) - 1];
+    $down = "";
+    foreach ($migrations as $m) {
+        if ($m["id"] == $last && array::contains(array::keys($m), "down")) {
+            $down = $m["down"];
+        }
+    }
+    db::begin($conn);
+    try {
+        foreach (migrate__statements($down) as $stmt) {
+            db::exec($conn, $stmt, []);
+        }
+        db::exec($conn, "DELETE FROM _look_migrations WHERE id=?", [$last]);
+        db::commit($conn);
+    } catch ($e) {
+        db::rollback($conn);
+        throw "migrate: rollback '" . $last . "' failed: " . error::message($e);
+    }
+    return $last;
+}
+
+// Terminal entry point: dispatch on the MIGRATE_CMD env var (up|down|status) and
+// print a human-readable result. Lets a one-line .lk runner behave like a CLI:
+//   MIGRATE_CMD=up|down|status  lk migrate.lk
+function migrate_cli($conn, $migrations) {
+    $cmd = env("MIGRATE_CMD", "up");
+    if ($cmd == "status") {
+        print("Migration status:");
+        foreach (migrate_status($conn, $migrations) as $s) {
+            $mark = "pending";
+            if ($s["applied"]) {
+                $mark = "applied";
+            }
+            print("  [" . $mark . "] " . $s["id"]);
+        }
+        return;
+    }
+    if ($cmd == "down" || $cmd == "rollback") {
+        $id = migrate_rollback($conn, $migrations);
+        if (string::len($id) == 0) {
+            print("Nothing to roll back.");
+        } else {
+            print("Rolled back: " . $id);
+        }
+        return;
+    }
+    $done = migrate_run($conn, $migrations);
+    if (count($done) == 0) {
+        print("Already up to date.");
+    } else {
+        print("Applied " . count($done) . " migration(s):");
+        foreach ($done as $id) {
+            print("  + " . $id);
+        }
+    }
 }

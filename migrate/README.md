@@ -44,13 +44,53 @@ foreach (migrate_status($conn, $migrations) as $s) {
 }
 ```
 
+## Rollback
+
+Give a migration an optional `down` body and you can undo the most recent one:
+
+```lk
+$migrations = [
+    ["id" => "0001_users",
+     "up"   => "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(100))",
+     "down" => "DROP TABLE users"]
+]
+
+migrate_rollback($conn, $migrations)   # -> "0001_users"  (runs the down, un-tracks it)
+```
+
+## Terminal usage (no artisan needed)
+
+LOOK scripts don't take CLI arguments, so the command is selected with an env var.
+Put your migrations in a small runner and call `migrate_cli`:
+
+```lk
+# migrate.lk
+use migrate
+use db
+migrate_cli(db::connect(env("DB_DSN")), [
+    ["id" => "0001_users", "up" => "CREATE TABLE users (id INTEGER PRIMARY KEY)", "down" => "DROP TABLE users"]
+])
+```
+
+```bash
+MIGRATE_CMD=up     lk migrate.lk    # apply pending   (default)
+MIGRATE_CMD=status lk migrate.lk    # show applied/pending
+MIGRATE_CMD=down   lk migrate.lk    # roll back the last one
+```
+
+This is the LOOK counterpart to `php artisan migrate` / `migrate:rollback` — a plain
+`.lk` you run in the terminal. Migrations are explicit data in that file rather than
+auto-discovered from a folder (LOOK has no directory-listing, and explicit beats magic).
+
 ## API
 
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `migrate_run($conn, $migrations)` | `[id, ...]` | Apply every not-yet-applied migration, in array order, each in its own transaction. Returns the ids newly applied. |
+| `migrate_rollback($conn, $migrations)` | `id` \| `""` | Undo the most recently applied migration (run its `down`, drop its tracking row). `""` if nothing was applied. |
 | `migrate_status($conn, $migrations)` | `[["id"=>.., "applied"=>bool], ...]` | Applied/pending state for each migration. |
 | `migrate_applied($conn)` | `[id, ...]` | Ids already recorded as applied. |
+| `migrate_cli($conn, $migrations)` | *(prints)* | Terminal dispatch on `MIGRATE_CMD` (`up`/`down`/`status`). |
 
 ## Notes
 
