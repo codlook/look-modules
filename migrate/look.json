@@ -1,9 +1,9 @@
 {
-  "description": "Honest schema-migration runner — apply/rollback an ordered list of SQL migrations, tracked in a table, with terminal dispatch (MIGRATE_CMD up/down/status). No ORM, no magic. Portable across MySQL, PostgreSQL and SQLite.",
+  "description": "Honest schema-migration runner — apply/rollback an ordered list of SQL migrations, tracked in a table, run from the terminal (lk migrate.lk up/down/status). Explicit statements, no ; parsing; no ORM, no magic.",
   "tags": ["database", "migration", "schema", "sql"],
   "icon": "🗃️",
   "color": "blue",
   "use": "use migrate",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "codlook"
 }

@@ -2,6 +2,7 @@ use db;
 use string;
 use date;
 use array;
+use type;
 
 // migrate — a tiny, honest schema-migration runner for LOOK.
 // No ORM, no magic: you pass an ordered list of migrations as plain data and
@@ -37,17 +38,23 @@ function migrate__is_applied($conn, $id) {
     return $n > 0;
 }
 
-// Split a migration body into individual statements on ';' (blank parts skipped).
-function migrate__statements($sql) {
-    $parts = string::split($sql, ";");
-    $out = [];
-    foreach ($parts as $p) {
-        $t = string::trim($p);
-        if (string::len($t) > 0) {
-            push($out, $t);
+// Normalise a migration body to a list of statements. A body is either one SQL
+// string, or an array of SQL strings for multiple statements — EXPLICIT, no ';'
+// parsing (a ';' inside a string literal or a trigger body must never split).
+function migrate__statements($body) {
+    if (type::is_array($body)) {
+        return $body;
+    }
+    return [$body];
+}
+
+// Run every statement in a body, skipping blank ones (so an empty "down" is a no-op).
+function migrate__exec_all($conn, $body) {
+    foreach (migrate__statements($body) as $stmt) {
+        if (string::len(string::trim($stmt)) > 0) {
+            db::exec($conn, $stmt, []);
         }
     }
-    return $out;
 }
 
 function migrate_applied($conn) {
@@ -70,9 +77,7 @@ function migrate_run($conn, $migrations) {
         }
         db::begin($conn);
         try {
-            foreach (migrate__statements($m["up"]) as $stmt) {
-                db::exec($conn, $stmt, []);
-            }
+            migrate__exec_all($conn, $m["up"]);
             db::exec($conn, "INSERT INTO _look_migrations (id, applied_at) VALUES (?, ?)", [$id, date::now()]);
             db::commit($conn);
         } catch ($e) {
@@ -103,17 +108,22 @@ function migrate_rollback($conn, $migrations) {
         return "";
     }
     $last = $applied[count($applied) - 1];
+    // A missing "down" is a mistake (silent un-track hides schema drift); an explicit
+    // "down" => "" means "intentionally irreversible" (just un-track, run nothing).
+    $has_down = false;
     $down = "";
     foreach ($migrations as $m) {
         if ($m["id"] == $last && array::contains(array::keys($m), "down")) {
+            $has_down = true;
             $down = $m["down"];
         }
     }
+    if (!$has_down) {
+        throw "migrate: cannot roll back '" . $last . "': no down defined (use \"down\" => \"\" if it is intentionally irreversible)";
+    }
     db::begin($conn);
     try {
-        foreach (migrate__statements($down) as $stmt) {
-            db::exec($conn, $stmt, []);
-        }
+        migrate__exec_all($conn, $down);
         db::exec($conn, "DELETE FROM _look_migrations WHERE id=?", [$last]);
         db::commit($conn);
     } catch ($e) {
@@ -123,11 +133,27 @@ function migrate_rollback($conn, $migrations) {
     return $last;
 }
 
-// Terminal entry point: dispatch on the MIGRATE_CMD env var (up|down|status) and
-// print a human-readable result. Lets a one-line .lk runner behave like a CLI:
-//   MIGRATE_CMD=up|down|status  lk migrate.lk
+// Terminal entry point: dispatch on the first CLI argument (up|down|status,
+// default up) and print a human-readable result. A one-line .lk runner becomes a
+// real command:  lk migrate.lk up | lk migrate.lk down | lk migrate.lk status
+// (requires a LOOK with args(); on older builds pass the command via the MIGRATE_CMD
+// env var as a fallback.)
 function migrate_cli($conn, $migrations) {
-    $cmd = env("MIGRATE_CMD", "up");
+    // args() is the real path (lk migrate.lk up). On a LOOK without args() it throws;
+    // we catch that and fall back to the MIGRATE_CMD env var, so this one runner works
+    // on both new and old runtimes.
+    $a = [];
+    try {
+        $a = args();
+    } catch ($e) {
+        $a = [];
+    }
+    $cmd = "up";
+    if (count($a) > 0) {
+        $cmd = $a[0];
+    } else {
+        $cmd = env("MIGRATE_CMD", "up");
+    }
     if ($cmd == "status") {
         print("Migration status:");
         foreach (migrate_status($conn, $migrations) as $s) {
