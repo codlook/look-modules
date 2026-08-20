@@ -1,0 +1,9 @@
+{
+  "description": "Dictionary-based translation — stateless and explicit (no hidden global locale), with {placeholder} interpolation and a fallback locale. You hold the dict and the active locale.",
+  "tags": ["i18n", "localization", "translation"],
+  "icon": "🌍",
+  "color": "green",
+  "use": "use i18n",
+  "version": "1.0.0",
+  "author": "codlook"
+}

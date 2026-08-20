@@ -1,0 +1,9 @@
+{
+  "description": "Practical Markdown → HTML — headings, bold/italic, code, links, images, lists, blockquotes. HTML-escaped first (safe by default), built on core string:: and html::.",
+  "tags": ["markdown", "content", "html", "cms"],
+  "icon": "📝",
+  "color": "blue",
+  "use": "use markdown",
+  "version": "1.0.0",
+  "author": "codlook"
+}

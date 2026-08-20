@@ -1,0 +1,47 @@
+use string;
+use array;
+
+// i18n — dictionary-based translation for LOOK: stateless and explicit, no hidden
+// global "current locale". You hold the dictionary and the active locale (e.g. in
+// the session) and pass them in. {placeholders} are filled from a params assoc.
+//
+// $dict shape:
+//   ["tr" => ["hello" => "Merhaba {name}", "bye" => "Güle güle"],
+//    "en" => ["hello" => "Hello {name}",   "bye" => "Bye"]]
+//
+// i18n_t($dict, $locale, $key, $params)  -> string
+//     $locale value for $key; falls back to env I18N_FALLBACK (default "en");
+//     if still missing, returns $key unchanged. Pass [] for $params when none.
+// i18n_has($dict, $locale, $key)  -> bool
+// i18n_locales($dict)             -> [locale, ...]
+
+function i18n__interp($str, $params) {
+    $out = $str;
+    foreach ($params as $k => $v) {
+        $out = string::replace($out, "{" . $k . "}", "" . $v);
+    }
+    return $out;
+}
+
+function i18n_has($dict, $locale, $key) {
+    if (!array::contains(array::keys($dict), $locale)) {
+        return false;
+    }
+    $loc = $dict[$locale];
+    return array::contains(array::keys($loc), $key);
+}
+
+function i18n_t($dict, $locale, $key, $params) {
+    if (i18n_has($dict, $locale, $key)) {
+        return i18n__interp($dict[$locale][$key], $params);
+    }
+    $fb = env("I18N_FALLBACK", "en");
+    if (i18n_has($dict, $fb, $key)) {
+        return i18n__interp($dict[$fb][$key], $params);
+    }
+    return $key;
+}
+
+function i18n_locales($dict) {
+    return array::keys($dict);
+}

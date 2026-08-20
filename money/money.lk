@@ -1,0 +1,82 @@
+use string;
+use array;
+
+// money — integer minor-unit money for LOOK. An amount is an integer number of
+// minor units (cents / kuruş), so every operation stays on integers and there are
+// no float rounding errors — the reason you never store money as a float. Only
+// formatting produces the major.minor split and a currency symbol.
+//
+// money_parse($str)            -> int     "12.34" -> 1234, "12" -> 1200 (2 decimals)
+// money_format($cents, $cur)   -> string  1234,"USD" -> "$12.34"; -99,"USD" -> "-$0.99"
+// money_add($a, $b)            -> int
+// money_sub($a, $b)            -> int
+// money_mul($cents, $qty)      -> int     amount times an integer quantity
+//
+// Symbols: USD $, EUR €, GBP £, TRY ₺; an unknown code is prefixed as "CODE ".
+
+function money__symbol($cur) {
+    $m = ["USD" => "$", "EUR" => "€", "GBP" => "£", "TRY" => "₺"];
+    if (array::contains(array::keys($m), $cur)) {
+        return $m[$cur];
+    }
+    return $cur . " ";
+}
+
+function money_parse($str) {
+    $s = string::trim($str);
+    $neg = false;
+    if (string::starts_with($s, "-")) {
+        $neg = true;
+        $s = string::substr($s, 1);
+    }
+    $dot = string::index_of($s, ".");
+    $cents = 0;
+    if ($dot < 0) {
+        $cents = int($s) * 100;
+    } else {
+        $major = string::substr($s, 0, $dot);
+        $minor = string::substr($s, $dot + 1);
+        if (string::len($minor) == 1) {
+            $minor = $minor . "0";
+        }
+        if (string::len($minor) > 2) {
+            $minor = string::substr($minor, 0, 2);
+        }
+        $cents = int($major) * 100 + int($minor);
+    }
+    if ($neg) {
+        return -$cents;
+    }
+    return $cents;
+}
+
+function money_format($cents, $cur) {
+    $neg = $cents < 0;
+    $abs = $cents;
+    if ($neg) {
+        $abs = -$cents;
+    }
+    $minor = $abs % 100;
+    $major = int(($abs - $minor) / 100);
+    $mstr = "" . $minor;
+    if ($minor < 10) {
+        $mstr = "0" . $mstr;
+    }
+    $sign = "";
+    if ($neg) {
+        $sign = "-";
+    }
+    return $sign . money__symbol($cur) . $major . "." . $mstr;
+}
+
+function money_add($a, $b) {
+    return $a + $b;
+}
+
+function money_sub($a, $b) {
+    return $a - $b;
+}
+
+function money_mul($cents, $qty) {
+    return $cents * $qty;
+}

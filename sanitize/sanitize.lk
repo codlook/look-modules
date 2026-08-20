@@ -1,0 +1,36 @@
+use string;
+use html;
+
+// sanitize — make untrusted HTML safe to render, the honest way. LOOK has no DOM,
+// so instead of a fragile "strip the bad tags" regex (the classic bypass magnet),
+// this escapes EVERYTHING first and then re-enables only a fixed set of
+// attribute-less formatting tags. An injected <script>, an onerror= handler, a
+// javascript: href — all stay escaped, because they never match an exact
+// attribute-less tag token. This is provably safe, not best-effort.
+//
+// sanitize_text($html)  -> string   strip all tags -> trimmed, escaped plain text
+// sanitize_basic($html) -> string   allow only safe formatting tags (no attributes)
+//
+// Allowed by sanitize_basic: b strong i em u s code pre p br ul ol li blockquote
+// h1..h6. Nothing with attributes is allowed — so there is no href/src/on* surface.
+// Need a link? Build it yourself with html::attr on a value you trust.
+
+function sanitize_text($html) {
+    return html::escape(string::trim(html::strip($html)));
+}
+
+// Re-enable one attribute-less tag (both <tag> and </tag>) in already-escaped text.
+function sanitize__allow($escaped, $tag) {
+    $e = string::replace($escaped, "&lt;" . $tag . "&gt;", "<" . $tag . ">");
+    $e = string::replace($e, "&lt;/" . $tag . "&gt;", "</" . $tag . ">");
+    return $e;
+}
+
+function sanitize_basic($html) {
+    $e = html::escape($html);
+    $tags = ["b", "strong", "i", "em", "u", "s", "code", "pre", "p", "br", "ul", "ol", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"];
+    foreach ($tags as $t) {
+        $e = sanitize__allow($e, $t);
+    }
+    return $e;
+}

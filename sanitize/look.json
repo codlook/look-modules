@@ -1,0 +1,9 @@
+{
+  "description": "Make untrusted HTML safe — escape everything, then re-enable only attribute-less formatting tags. Provably safe (no href/on* surface), not regex-strip best-effort.",
+  "tags": ["security", "html", "xss", "sanitize"],
+  "icon": "🧼",
+  "color": "navy",
+  "use": "use sanitize",
+  "version": "1.0.0",
+  "author": "codlook"
+}

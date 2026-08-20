@@ -1,0 +1,9 @@
+{
+  "description": "Integer minor-unit money — store amounts as cents/kuruş so all math stays on integers (no float rounding). Parse, format with a currency symbol, add/sub/multiply.",
+  "tags": ["money", "currency", "commerce", "finance"],
+  "icon": "💰",
+  "color": "orange",
+  "use": "use money",
+  "version": "1.0.0",
+  "author": "codlook"
+}
