@@ -1,0 +1,9 @@
+{
+  "description": "Role-based access control straight over db:: — roles, permissions and a wildcard, every check a plain SQL JOIN. No ORM. Portable across MySQL, PostgreSQL and SQLite.",
+  "tags": ["auth", "rbac", "permissions", "security"],
+  "icon": "🛡️",
+  "color": "navy",
+  "use": "use rbac",
+  "version": "1.0.0",
+  "author": "codlook"
+}

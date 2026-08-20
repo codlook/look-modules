@@ -1,0 +1,9 @@
+{
+  "description": "Thin, honest file-storage layer — put/get/delete/url over the local disk, confined to a root with no path traversal. Same surface an S3-compatible package can implement later.",
+  "tags": ["storage", "files", "upload", "media"],
+  "icon": "📦",
+  "color": "orange",
+  "use": "use storage",
+  "version": "1.0.0",
+  "author": "codlook"
+}

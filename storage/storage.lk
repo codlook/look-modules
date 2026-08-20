@@ -1,0 +1,72 @@
+use file;
+use string;
+
+// storage — a thin, honest file-storage layer for LOOK. Local disk today; an
+// S3-compatible package can implement the same surface later. Every key is
+// confined to a root directory and ".." is rejected — no path traversal.
+//
+// Config (env — explicit, nothing hidden):
+//   STORAGE_ROOT  base directory on disk           (default "storage")
+//   STORAGE_URL   public URL prefix for storage_url (default "/storage")
+//
+// storage_put($key, $content)  -> bool    write (overwrites)
+// storage_get($key)            -> string  read
+// storage_exists($key)         -> bool
+// storage_delete($key)         -> bool
+// storage_size($key)           -> int     bytes
+// storage_append($key, $data)  -> bool
+// storage_url($key)            -> string  public URL for the object
+//
+// $key is a relative path like "avatars/42.png". A leading '/' is trimmed.
+// The root directory (and any sub-directory a key names) must already exist —
+// LOOK has no mkdir builtin, so create your storage layout at deploy time.
+//
+// Security: file:: is already sandboxed by the runtime to LOOK_FILE_ROOT. Point
+// STORAGE_ROOT at a directory inside that sandbox; a path outside it is rejected
+// by the core before storage ever sees it (defence in depth, on top of the ".."
+// guard here).
+
+function storage__key($key) {
+    if (string::contains($key, "..")) {
+        throw "storage: path traversal rejected: " . $key;
+    }
+    $k = $key;
+    if (string::starts_with($k, "/")) {
+        $k = string::substr($k, 1);
+    }
+    return $k;
+}
+
+function storage__path($key) {
+    $root = env("STORAGE_ROOT", "storage");
+    return $root . "/" . storage__key($key);
+}
+
+function storage_put($key, $content) {
+    return file::put(storage__path($key), $content);
+}
+
+function storage_get($key) {
+    return file::read(storage__path($key));
+}
+
+function storage_exists($key) {
+    return file::exists(storage__path($key));
+}
+
+function storage_delete($key) {
+    return file::remove(storage__path($key));
+}
+
+function storage_size($key) {
+    return file::size(storage__path($key));
+}
+
+function storage_append($key, $data) {
+    return file::append(storage__path($key), $data);
+}
+
+function storage_url($key) {
+    $prefix = env("STORAGE_URL", "/storage");
+    return $prefix . "/" . storage__key($key);
+}

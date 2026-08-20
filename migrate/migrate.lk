@@ -1,0 +1,85 @@
+use db;
+use string;
+use date;
+
+// migrate — a tiny, honest schema-migration runner for LOOK.
+// No ORM, no magic: you pass an ordered list of migrations as plain data and
+// migrate_run applies the not-yet-applied ones inside a transaction, recording
+// each in a tracking table. SQL stays SQL — nothing is hidden.
+//
+// A migration is an assoc: ["id" => "0001_init", "up" => "CREATE TABLE ..."]
+//   id : unique, sortable identifier. Migrations are applied in array order.
+//   up : SQL to bring the schema forward. Multiple statements may be separated
+//        by ';' (each is run in turn).
+//
+// migrate_run($conn, $migrations)    -> [applied_id, ...]   newly applied, in order
+// migrate_status($conn, $migrations) -> [["id"=>.., "applied"=>bool], ...]
+// migrate_applied($conn)             -> [id, ...]            already-applied ids
+//
+// The tracking table (_look_migrations) is created on first use. Its DDL uses
+// only VARCHAR columns so the same code runs on MySQL, PostgreSQL and SQLite.
+
+function migrate__ensure($conn) {
+    db::exec($conn, "CREATE TABLE IF NOT EXISTS _look_migrations (id VARCHAR(255) PRIMARY KEY, applied_at VARCHAR(32))", []);
+}
+
+function migrate__is_applied($conn, $id) {
+    $n = db::col($conn, "SELECT COUNT(*) FROM _look_migrations WHERE id=?", [$id]);
+    return $n > 0;
+}
+
+// Split a migration body into individual statements on ';' (blank parts skipped).
+function migrate__statements($sql) {
+    $parts = string::split($sql, ";");
+    $out = [];
+    foreach ($parts as $p) {
+        $t = string::trim($p);
+        if (string::len($t) > 0) {
+            push($out, $t);
+        }
+    }
+    return $out;
+}
+
+function migrate_applied($conn) {
+    migrate__ensure($conn);
+    $rows = db::query($conn, "SELECT id FROM _look_migrations ORDER BY id", []);
+    $out = [];
+    foreach ($rows as $r) {
+        push($out, $r["id"]);
+    }
+    return $out;
+}
+
+function migrate_run($conn, $migrations) {
+    migrate__ensure($conn);
+    $applied = [];
+    foreach ($migrations as $m) {
+        $id = $m["id"];
+        if (migrate__is_applied($conn, $id)) {
+            continue;
+        }
+        db::begin($conn);
+        try {
+            foreach (migrate__statements($m["up"]) as $stmt) {
+                db::exec($conn, $stmt, []);
+            }
+            db::exec($conn, "INSERT INTO _look_migrations (id, applied_at) VALUES (?, ?)", [$id, date::now()]);
+            db::commit($conn);
+        } catch ($e) {
+            db::rollback($conn);
+            throw "migrate: '" . $id . "' failed: " . error::message($e);
+        }
+        push($applied, $id);
+    }
+    return $applied;
+}
+
+function migrate_status($conn, $migrations) {
+    migrate__ensure($conn);
+    $out = [];
+    foreach ($migrations as $m) {
+        push($out, ["id" => $m["id"], "applied" => migrate__is_applied($conn, $m["id"])]);
+    }
+    return $out;
+}

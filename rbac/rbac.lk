@@ -1,0 +1,92 @@
+use db;
+
+// rbac — role-based access control for LOOK, straight over db:: (no ORM).
+// Four namespaced tables hold roles, permissions and their links; every check is
+// a plain SQL query you could run by hand. A role may hold the wildcard
+// permission "*" to grant everything.
+//
+// rbac_setup($conn)                      create the tables (idempotent)
+// rbac_add_role($conn, $role)            register a role
+// rbac_add_permission($conn, $perm)      register a permission
+// rbac_grant($conn, $role, $perm)        give a permission to a role ("*" = all)
+// rbac_revoke($conn, $role, $perm)       take a permission back
+// rbac_assign($conn, $user_id, $role)    give a role to a user
+// rbac_unassign($conn, $user_id, $role)  take the role away
+// rbac_can($conn, $user_id, $perm)  -> bool  does the user hold $perm (via any role)?
+// rbac_roles($conn, $user_id)       -> [role, ...]
+// rbac_permissions($conn, $role)    -> [perm, ...]
+//
+// user_id is stored as text, so it works whether your users table keys on int
+// or uuid. grant/assign are idempotent (safe to call twice) and portable across
+// MySQL, PostgreSQL and SQLite (check-then-insert, no vendor-specific upsert).
+
+function rbac_setup($conn) {
+    db::exec($conn, "CREATE TABLE IF NOT EXISTS rbac_role (name VARCHAR(100) PRIMARY KEY)", []);
+    db::exec($conn, "CREATE TABLE IF NOT EXISTS rbac_permission (name VARCHAR(150) PRIMARY KEY)", []);
+    db::exec($conn, "CREATE TABLE IF NOT EXISTS rbac_role_permission (role VARCHAR(100), permission VARCHAR(150), PRIMARY KEY (role, permission))", []);
+    db::exec($conn, "CREATE TABLE IF NOT EXISTS rbac_user_role (user_id VARCHAR(100), role VARCHAR(100), PRIMARY KEY (user_id, role))", []);
+}
+
+function rbac__count($conn, $sql, $params) {
+    $n = db::col($conn, $sql, $params);
+    return $n > 0;
+}
+
+function rbac_add_role($conn, $role) {
+    if (!rbac__count($conn, "SELECT COUNT(*) FROM rbac_role WHERE name=?", [$role])) {
+        db::exec($conn, "INSERT INTO rbac_role (name) VALUES (?)", [$role]);
+    }
+}
+
+function rbac_add_permission($conn, $perm) {
+    if (!rbac__count($conn, "SELECT COUNT(*) FROM rbac_permission WHERE name=?", [$perm])) {
+        db::exec($conn, "INSERT INTO rbac_permission (name) VALUES (?)", [$perm]);
+    }
+}
+
+function rbac_grant($conn, $role, $perm) {
+    if (!rbac__count($conn, "SELECT COUNT(*) FROM rbac_role_permission WHERE role=? AND permission=?", [$role, $perm])) {
+        db::exec($conn, "INSERT INTO rbac_role_permission (role, permission) VALUES (?, ?)", [$role, $perm]);
+    }
+}
+
+function rbac_revoke($conn, $role, $perm) {
+    db::exec($conn, "DELETE FROM rbac_role_permission WHERE role=? AND permission=?", [$role, $perm]);
+}
+
+function rbac_assign($conn, $user_id, $role) {
+    $uid = "" . $user_id;
+    if (!rbac__count($conn, "SELECT COUNT(*) FROM rbac_user_role WHERE user_id=? AND role=?", [$uid, $role])) {
+        db::exec($conn, "INSERT INTO rbac_user_role (user_id, role) VALUES (?, ?)", [$uid, $role]);
+    }
+}
+
+function rbac_unassign($conn, $user_id, $role) {
+    db::exec($conn, "DELETE FROM rbac_user_role WHERE user_id=? AND role=?", ["" . $user_id, $role]);
+}
+
+// The whole access decision, as one readable JOIN: a user can do $perm if any of
+// their roles grants exactly that permission or the wildcard "*".
+function rbac_can($conn, $user_id, $perm) {
+    $sql = "SELECT COUNT(*) FROM rbac_user_role ur JOIN rbac_role_permission rp ON ur.role = rp.role WHERE ur.user_id = ? AND (rp.permission = ? OR rp.permission = '*')";
+    $n = db::col($conn, $sql, ["" . $user_id, $perm]);
+    return $n > 0;
+}
+
+function rbac_roles($conn, $user_id) {
+    $rows = db::query($conn, "SELECT role FROM rbac_user_role WHERE user_id=? ORDER BY role", ["" . $user_id]);
+    $out = [];
+    foreach ($rows as $r) {
+        push($out, $r["role"]);
+    }
+    return $out;
+}
+
+function rbac_permissions($conn, $role) {
+    $rows = db::query($conn, "SELECT permission FROM rbac_role_permission WHERE role=? ORDER BY permission", [$role]);
+    $out = [];
+    foreach ($rows as $r) {
+        push($out, $r["permission"]);
+    }
+    return $out;
+}
