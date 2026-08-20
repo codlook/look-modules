@@ -1,0 +1,9 @@
+{
+  "description": "RFC 4180 CSV encode/decode — quotes fields with commas/quotes/newlines, doubles embedded quotes, and parses quoted fields that span newlines. Pure string:: work.",
+  "tags": ["csv", "data", "import", "export"],
+  "icon": "📊",
+  "color": "green",
+  "use": "use csv",
+  "version": "1.0.0",
+  "author": "codlook"
+}

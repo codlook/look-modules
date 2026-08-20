@@ -1,0 +1,97 @@
+use http;
+use crypto;
+use string;
+use json;
+
+// oauth — OAuth 2.0 Authorization Code flow with PKCE, provider-agnostic. Pure
+// LOOK on http:: and crypto::. You build the authorize URL, redirect the user,
+// then exchange the returned code for tokens. CSRF state and PKCE (S256) helpers
+// are included, plus presets for Google and GitHub.
+//
+// A provider config ($cfg) is an assoc:
+//   ["auth_url"=>.., "token_url"=>.., "client_id"=>.., "client_secret"=>..,
+//    "redirect_uri"=>.., "scope"=>..]
+//
+// oauth_state()                                 -> string  random CSRF state
+// oauth_pkce_verifier()                         -> string  random code_verifier
+// oauth_pkce_challenge($verifier)               -> string  S256 code_challenge
+// oauth_authorize_url($cfg, $state, $challenge) -> string  URL to send the user to
+// oauth_exchange($cfg, $code, $verifier)        -> assoc   token response (JSON parsed)
+// oauth_google($id,$secret,$redirect)           -> $cfg    Google preset
+// oauth_github($id,$secret,$redirect)           -> $cfg    GitHub preset
+//
+// Flow: store state+verifier in the session; on callback, check state matches and
+// pass the code + verifier to oauth_exchange.
+
+// Percent-encode the characters that appear in OAuth query values (redirect_uri,
+// scope, client_id, code). '%' first so we don't double-encode.
+function oauth__urlenc($s) {
+    $e = string::replace("" . $s, "%", "%25");
+    $e = string::replace($e, " ", "%20");
+    $e = string::replace($e, ":", "%3A");
+    $e = string::replace($e, "/", "%2F");
+    $e = string::replace($e, "?", "%3F");
+    $e = string::replace($e, "#", "%23");
+    $e = string::replace($e, "&", "%26");
+    $e = string::replace($e, "=", "%3D");
+    $e = string::replace($e, "+", "%2B");
+    $e = string::replace($e, ",", "%2C");
+    return $e;
+}
+
+function oauth_state() {
+    return crypto::random_string(32);
+}
+
+function oauth_pkce_verifier() {
+    return crypto::random_string(64);
+}
+
+function oauth_pkce_challenge($verifier) {
+    // S256: base64url( SHA256(verifier) ) over the raw 32-byte digest.
+    return crypto::base64url_encode(crypto::hex_decode(crypto::sha256($verifier)));
+}
+
+function oauth_authorize_url($cfg, $state, $challenge) {
+    $u = $cfg["auth_url"] . "?response_type=code";
+    $u = $u . "&client_id=" . oauth__urlenc($cfg["client_id"]);
+    $u = $u . "&redirect_uri=" . oauth__urlenc($cfg["redirect_uri"]);
+    $u = $u . "&scope=" . oauth__urlenc($cfg["scope"]);
+    $u = $u . "&state=" . oauth__urlenc($state);
+    $u = $u . "&code_challenge=" . $challenge . "&code_challenge_method=S256";
+    return $u;
+}
+
+function oauth_exchange($cfg, $code, $verifier) {
+    $body = "grant_type=authorization_code";
+    $body = $body . "&code=" . oauth__urlenc($code);
+    $body = $body . "&redirect_uri=" . oauth__urlenc($cfg["redirect_uri"]);
+    $body = $body . "&client_id=" . oauth__urlenc($cfg["client_id"]);
+    $body = $body . "&client_secret=" . oauth__urlenc($cfg["client_secret"]);
+    $body = $body . "&code_verifier=" . $verifier;
+    $headers = ["Content-Type" => "application/x-www-form-urlencoded", "Accept" => "application/json"];
+    $resp = http::post($cfg["token_url"], $body, $headers);
+    return json::decode($resp["body"]);
+}
+
+function oauth_google($id, $secret, $redirect) {
+    return [
+        "auth_url" => "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url" => "https://oauth2.googleapis.com/token",
+        "client_id" => $id,
+        "client_secret" => $secret,
+        "redirect_uri" => $redirect,
+        "scope" => "openid email profile"
+    ];
+}
+
+function oauth_github($id, $secret, $redirect) {
+    return [
+        "auth_url" => "https://github.com/login/oauth/authorize",
+        "token_url" => "https://github.com/login/oauth/access_token",
+        "client_id" => $id,
+        "client_secret" => $secret,
+        "redirect_uri" => $redirect,
+        "scope" => "read:user user:email"
+    ];
+}

@@ -1,0 +1,9 @@
+{
+  "description": "OAuth 2.0 Authorization Code + PKCE (S256), provider-agnostic — build the authorize URL, exchange the code for tokens. CSRF state helper and Google/GitHub presets. Pure http:: + crypto::.",
+  "tags": ["oauth", "auth", "login", "pkce"],
+  "icon": "🔑",
+  "color": "navy",
+  "use": "use oauth",
+  "version": "1.0.0",
+  "author": "codlook"
+}

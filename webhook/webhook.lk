@@ -1,0 +1,51 @@
+use crypto;
+use string;
+
+// webhook — verify inbound webhook signatures with HMAC-SHA256, in constant time.
+// Pure LOOK on crypto::. A generic verify plus the GitHub and Stripe header
+// formats. Always compare with crypto::constant_compare (done here) so a bad
+// signature can't be discovered byte-by-byte via timing.
+//
+// webhook_sign($payload, $secret)                    -> string  hex HMAC-SHA256
+// webhook_verify($payload, $signature_hex, $secret)  -> bool    constant-time compare
+// webhook_verify_github($payload, $header, $secret)  -> bool    header "sha256=<hex>"
+// webhook_verify_stripe($payload, $sig_header, $secret) -> bool header "t=..,v1=.."
+//
+// $payload is the RAW request body (request::body()) — verify before parsing JSON,
+// and never re-serialize the body before checking (whitespace changes break it).
+
+function webhook_sign($payload, $secret) {
+    return crypto::hmac_sha256($payload, $secret);
+}
+
+function webhook_verify($payload, $signature, $secret) {
+    return crypto::constant_compare(crypto::hmac_sha256($payload, $secret), $signature);
+}
+
+function webhook_verify_github($payload, $header, $secret) {
+    $expected = "sha256=" . crypto::hmac_sha256($payload, $secret);
+    return crypto::constant_compare($expected, $header);
+}
+
+// Pull a value out of a "k1=v1,k2=v2" header (Stripe's Signature format).
+function webhook__field($header, $key) {
+    $parts = string::split($header, ",");
+    foreach ($parts as $p) {
+        $kv = string::split(string::trim($p), "=");
+        if (count($kv) == 2 && string::trim($kv[0]) == $key) {
+            return string::trim($kv[1]);
+        }
+    }
+    return "";
+}
+
+function webhook_verify_stripe($payload, $sig_header, $secret) {
+    $t = webhook__field($sig_header, "t");
+    $v1 = webhook__field($sig_header, "v1");
+    if (string::len($t) == 0 || string::len($v1) == 0) {
+        return false;
+    }
+    $signed = $t . "." . $payload;
+    $expected = crypto::hmac_sha256($signed, $secret);
+    return crypto::constant_compare($expected, $v1);
+}

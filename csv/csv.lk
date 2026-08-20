@@ -1,0 +1,98 @@
+use string;
+
+// csv — RFC 4180-style CSV encode/decode for LOOK, pure string:: work. A row is an
+// array of string fields, and a table is an array of rows. Fields containing a
+// comma, a double-quote or a newline are quoted, and embedded quotes are doubled;
+// the decoder reverses all of that, including quoted fields that span newlines.
+//
+// csv_encode($rows)  -> string              rows ([[a,b],[c,d]]) -> CSV text (CRLF)
+// csv_decode($text)  -> [[field, ...], ...] parse CSV text back into rows
+//
+// For header-based data, encode/decode the header row yourself alongside the body.
+
+function csv__quote($field) {
+    $f = "" . $field;
+    if (string::contains($f, ",") || string::contains($f, "\"") || string::contains($f, "\n") || string::contains($f, "\r")) {
+        $f = string::replace($f, "\"", "\"\"");
+        return "\"" . $f . "\"";
+    }
+    return $f;
+}
+
+function csv_encode($rows) {
+    $out = "";
+    foreach ($rows as $row) {
+        $line = "";
+        $first = true;
+        foreach ($row as $field) {
+            if (!$first) {
+                $line = $line . ",";
+            }
+            $line = $line . csv__quote($field);
+            $first = false;
+        }
+        $out = $out . $line . "\r\n";
+    }
+    return $out;
+}
+
+function csv_decode($text) {
+    $rows = [];
+    $row = [];
+    $field = "";
+    $in_quotes = false;
+    $i = 0;
+    $n = string::len($text);
+    while ($i < $n) {
+        $ch = string::substr($text, $i, 1);
+        if ($in_quotes) {
+            if ($ch == "\"") {
+                $next = "";
+                if ($i + 1 < $n) {
+                    $next = string::substr($text, $i + 1, 1);
+                }
+                if ($next == "\"") {
+                    $field = $field . "\"";
+                    $i = $i + 2;
+                    continue;
+                }
+                $in_quotes = false;
+                $i = $i + 1;
+                continue;
+            }
+            $field = $field . $ch;
+            $i = $i + 1;
+            continue;
+        }
+        if ($ch == "\"") {
+            $in_quotes = true;
+            $i = $i + 1;
+            continue;
+        }
+        if ($ch == ",") {
+            push($row, $field);
+            $field = "";
+            $i = $i + 1;
+            continue;
+        }
+        if ($ch == "\n") {
+            push($row, $field);
+            push($rows, $row);
+            $row = [];
+            $field = "";
+            $i = $i + 1;
+            continue;
+        }
+        if ($ch == "\r") {
+            $i = $i + 1;
+            continue;
+        }
+        $field = $field . $ch;
+        $i = $i + 1;
+    }
+    if (string::len($field) > 0 || count($row) > 0) {
+        push($row, $field);
+        push($rows, $row);
+    }
+    return $rows;
+}

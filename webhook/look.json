@@ -1,0 +1,9 @@
+{
+  "description": "Verify inbound webhook signatures with HMAC-SHA256 in constant time — generic verify plus GitHub (sha256=) and Stripe (t=,v1=) header formats. Pure crypto::.",
+  "tags": ["webhook", "security", "hmac", "stripe"],
+  "icon": "🪝",
+  "color": "navy",
+  "use": "use webhook",
+  "version": "1.0.0",
+  "author": "codlook"
+}
