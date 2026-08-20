@@ -32,6 +32,57 @@ $migrations = [
 ]
 ```
 
+## Schema migrations — portable DDL
+
+Raw SQL is fine, but a `CREATE TABLE` written by hand isn't portable: `AUTOINCREMENT`
+(SQLite) vs `AUTO_INCREMENT` (MySQL) vs `BIGSERIAL` (PostgreSQL). Describe the table
+**declaratively** and migrate compiles the right DDL for whatever database you're
+connected to (via `db::driver`). There are exactly three schema operations —
+`create_table`, `add_column`, `add_index` — and **everything else is raw `up` SQL, an
+equal first-class path** (see below). Schema for schema, SQL for data; both are normal.
+
+```lk
+$migrations = [
+    ["id" => "0001_users", "create_table" => "users", "columns" => [
+        ["id",         "pk"],                              # auto-increment PK per dialect
+        ["name",       "string", 100],                     # VARCHAR(100)
+        ["email",      "string", 150, ["unique" => true]], # + UNIQUE
+        ["age",        "int",    ["null" => true]],
+        ["created_at", "datetime"]
+    ]],
+    ["id" => "0002_avatar", "add_column" => "users",
+        "column" => ["avatar", "string", 255, ["null" => true]]],
+    ["id" => "0003_email_idx", "add_index" => "users", "columns" => ["email"]]
+]
+```
+
+**Column grammar:** `[name, type, size?, opts?]`
+- **types:** `pk string text int bigint bool float datetime date json` — or a raw SQL type
+  string as an escape hatch, e.g. `["price", "DECIMAL(10,2)"]`.
+- **size:** integer VARCHAR length for `string`.
+- **opts:** assoc — `["null" => false, "unique" => true, "default" => …]`.
+
+Schema migrations **roll back automatically** — `create_table` → `DROP TABLE`,
+`add_column` → `DROP COLUMN`, `add_index` → `DROP INDEX` (dialect-correct). You never
+write a `down` for them (though an explicit `down` still wins if you provide one).
+
+Inspect the generated DDL without a database with `migrate_ddl($driver, $migration)`
+(`$driver` is `"sqlite"`, `"mysql"` or `"postgres"`).
+
+> Why declarative, beyond portability: this same table description is the metadata
+> **LookAdmin** reads to build its CRUD forms and tables — a concrete second consumer,
+> not just a "might need it" bet.
+
+### Data migrations stay raw — and that's normal
+
+A data change (backfill, rename, a column type tweak DDL doesn't cover) is written as raw
+`up` SQL, exactly like a schema op — not a fallback, an equal path:
+
+```lk
+["id" => "0004_backfill_slug", "up" => "UPDATE posts SET slug = LOWER(title) WHERE slug IS NULL",
+ "down" => ""]   # data migrations are usually irreversible → explicit empty down
+```
+
 ## Run
 
 ```lk
@@ -100,7 +151,8 @@ auto-discovered from a folder (LOOK has no directory-listing, and explicit beats
 | `migrate_rollback($conn, $migrations)` | `id` \| `""` | Undo the most recently applied migration (run its `down`, drop its tracking row). `""` if nothing was applied. |
 | `migrate_status($conn, $migrations)` | `[["id"=>.., "applied"=>bool], ...]` | Applied/pending state for each migration. |
 | `migrate_applied($conn)` | `[id, ...]` | Ids already recorded as applied. |
-| `migrate_cli($conn, $migrations)` | *(prints)* | Terminal dispatch on `MIGRATE_CMD` (`up`/`down`/`status`). |
+| `migrate_cli($conn, $migrations)` | *(prints)* | Terminal dispatch on the first CLI arg (`up`/`down`/`status`). |
+| `migrate_ddl($driver, $migration)` | `string` | The DDL a schema migration compiles to for `$driver` (`"sqlite"`/`"mysql"`/`"postgres"`) — for inspection/testing without a DB. |
 
 ## Notes
 
@@ -108,10 +160,11 @@ auto-discovered from a folder (LOOK has no directory-listing, and explicit beats
   (`0001_`, `0002_`, …) and append new ones at the end.
 - Statements are explicit — a single string, or an array of strings. There is **no `;`
   splitting**, so a `;` inside a value or a trigger body is safe.
-- Each migration runs inside a transaction, which is real on SQLite/PostgreSQL. **On
-  MySQL, DDL auto-commits**, so a migration with several DDL statements isn't atomic
-  there — keep one logical change per migration (one `CREATE TABLE`, or a table plus its
-  index) and you avoid the half-applied case.
+- Migrations are **not** wrapped in an explicit transaction: DDL auto-commits on MySQL
+  anyway (so a wrapper is false assurance), and wrapping interfered with PostgreSQL. Keep
+  **one logical change per migration** (one `create_table`, or a table plus its index)
+  and application stays predictable — the statement runs, then the tracking row records
+  it. Schema migrations require a runtime with `db::driver()` (to pick the dialect).
 - Data migrations (`UPDATE`/backfill) are ordinary migrations too — just raw SQL in `up`
   with an appropriate `down` (or `"down" => ""` if irreversible).
 - `id` is the identity of a migration; never re-use or rename one that has shipped.

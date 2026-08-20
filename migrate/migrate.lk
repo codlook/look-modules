@@ -57,6 +57,176 @@ function migrate__exec_all($conn, $body) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Schema layer — DECLARATIVE schema for the common DDL, translated to the dialect
+// of the live DB (db::driver). Deliberately three operations only: create_table,
+// add_column, add_index. Everything else — other ALTERs, and every data migration
+// (UPDATE/backfill) — is written as raw "up" SQL, which is an EQUAL first-class path,
+// not a fallback. Schema for schema, SQL for data; both are normal.
+//
+// This same declarative table description is the metadata LookAdmin reads to build
+// its CRUD forms and tables — the concrete reason it exists, beyond portability.
+//
+// Column grammar: [name, type, size?, opts?]
+//   types:  pk string text int bigint bool float datetime date json
+//           (or a raw SQL type string as an escape hatch, e.g. "DECIMAL(10,2)")
+//   size:   integer, the VARCHAR length for "string"
+//   opts:   assoc — ["null"=>false, "unique"=>true, "default"=>...]
+
+function migrate__opt($opts, $key, $def) {
+    if (array::contains(array::keys($opts), $key)) {
+        return $opts[$key];
+    }
+    return $def;
+}
+
+function migrate__is_schema($m) {
+    $keys = array::keys($m);
+    return array::contains($keys, "create_table") || array::contains($keys, "add_column") || array::contains($keys, "add_index");
+}
+
+// One column's type SQL for a driver. pk carries its own PK + auto-increment.
+function migrate__sqltype($driver, $type, $size) {
+    if ($type == "pk") {
+        if ($driver == "mysql") { return "BIGINT AUTO_INCREMENT PRIMARY KEY"; }
+        if ($driver == "postgres") { return "BIGSERIAL PRIMARY KEY"; }
+        return "INTEGER PRIMARY KEY AUTOINCREMENT";
+    }
+    if ($type == "string") {
+        $n = 255;
+        if ($size > 0) { $n = $size; }
+        return "VARCHAR(" . $n . ")";
+    }
+    if ($type == "text") { return "TEXT"; }
+    if ($type == "int") {
+        if ($driver == "mysql") { return "INT"; }
+        return "INTEGER";
+    }
+    if ($type == "bigint") {
+        if ($driver == "sqlite") { return "INTEGER"; }
+        return "BIGINT";
+    }
+    if ($type == "bool") {
+        if ($driver == "mysql") { return "TINYINT(1)"; }
+        if ($driver == "postgres") { return "BOOLEAN"; }
+        return "INTEGER";
+    }
+    if ($type == "datetime") {
+        if ($driver == "mysql") { return "DATETIME"; }
+        if ($driver == "postgres") { return "TIMESTAMP"; }
+        return "TEXT";
+    }
+    if ($type == "date") {
+        if ($driver == "sqlite") { return "TEXT"; }
+        return "DATE";
+    }
+    if ($type == "float") {
+        if ($driver == "mysql") { return "FLOAT"; }
+        return "REAL";
+    }
+    if ($type == "json") {
+        if ($driver == "mysql") { return "JSON"; }
+        if ($driver == "postgres") { return "JSONB"; }
+        return "TEXT";
+    }
+    // unknown → raw SQL type, pass through (escape hatch inside the type field)
+    return $type;
+}
+
+function migrate__quote_default($v) {
+    if (type::is_string($v)) { return "'" . $v . "'"; }
+    if (type::is_bool($v)) {
+        if ($v) { return "1"; }
+        return "0";
+    }
+    return "" . $v;
+}
+
+// Full DDL for one column: "name TYPE [NOT NULL] [DEFAULT x] [UNIQUE]".
+function migrate__col_ddl($driver, $col) {
+    $name = $col[0];
+    $type = $col[1];
+    $size = 0;
+    $opts = [];
+    if (count($col) >= 3) {
+        if (type::is_int($col[2])) {
+            $size = $col[2];
+        } else {
+            $opts = $col[2];
+        }
+    }
+    if (count($col) >= 4) {
+        $opts = $col[3];
+    }
+    $ddl = $name . " " . migrate__sqltype($driver, $type, $size);
+    if ($type != "pk") {
+        if (migrate__opt($opts, "null", true) == false) {
+            $ddl = $ddl . " NOT NULL";
+        }
+        if (array::contains(array::keys($opts), "default")) {
+            $ddl = $ddl . " DEFAULT " . migrate__quote_default($opts["default"]);
+        }
+        if (migrate__opt($opts, "unique", false) == true) {
+            $ddl = $ddl . " UNIQUE";
+        }
+    }
+    return $ddl;
+}
+
+function migrate__index_name($m) {
+    return "idx_" . $m["add_index"] . "_" . string::join($m["columns"], "_");
+}
+
+// The forward (up) DDL for a schema migration.
+function migrate__gen_up($driver, $m) {
+    $keys = array::keys($m);
+    if (array::contains($keys, "create_table")) {
+        $cols = [];
+        foreach ($m["columns"] as $col) {
+            push($cols, migrate__col_ddl($driver, $col));
+        }
+        return "CREATE TABLE " . $m["create_table"] . " (" . string::join($cols, ", ") . ")";
+    }
+    if (array::contains($keys, "add_column")) {
+        return "ALTER TABLE " . $m["add_column"] . " ADD COLUMN " . migrate__col_ddl($driver, $m["column"]);
+    }
+    if (array::contains($keys, "add_index")) {
+        $unique = "";
+        if (migrate__opt($m, "unique", false) == true) {
+            $unique = "UNIQUE ";
+        }
+        return "CREATE " . $unique . "INDEX " . migrate__index_name($m) . " ON " . $m["add_index"] . " (" . string::join($m["columns"], ", ") . ")";
+    }
+    return "";
+}
+
+// The auto-generated rollback (down) DDL for a schema migration.
+function migrate__gen_down($driver, $m) {
+    $keys = array::keys($m);
+    if (array::contains($keys, "create_table")) {
+        return "DROP TABLE " . $m["create_table"];
+    }
+    if (array::contains($keys, "add_column")) {
+        return "ALTER TABLE " . $m["add_column"] . " DROP COLUMN " . $m["column"][0];
+    }
+    if (array::contains($keys, "add_index")) {
+        if ($driver == "mysql") {
+            return "DROP INDEX " . migrate__index_name($m) . " ON " . $m["add_index"];
+        }
+        return "DROP INDEX " . migrate__index_name($m);
+    }
+    return "";
+}
+
+// Public: the up DDL a schema migration would run on $driver — for inspection/testing
+// without a database. Raw migrations return their "up" unchanged.
+function migrate_ddl($driver, $m) {
+    if (migrate__is_schema($m)) {
+        return migrate__gen_up($driver, $m);
+    }
+    return $m["up"];
+}
+
 function migrate_applied($conn) {
     migrate__ensure($conn);
     $rows = db::query($conn, "SELECT id FROM _look_migrations ORDER BY id", []);
@@ -70,18 +240,30 @@ function migrate_applied($conn) {
 function migrate_run($conn, $migrations) {
     migrate__ensure($conn);
     $applied = [];
+    $driver = "";
     foreach ($migrations as $m) {
         $id = $m["id"];
         if (migrate__is_applied($conn, $id)) {
             continue;
         }
-        db::begin($conn);
+        // Schema migration → generate DDL for the live driver; raw → use "up" as-is.
+        $up = "";
+        if (migrate__is_schema($m)) {
+            if ($driver == "") {
+                $driver = db::driver($conn);
+            }
+            $up = migrate__gen_up($driver, $m);
+        } else {
+            $up = $m["up"];
+        }
+        // No explicit transaction: DDL auto-commits on MySQL regardless (so a wrapper is
+        // false assurance), and wrapping interfered on PostgreSQL. Keep one logical change
+        // per migration and application stays predictable — the statement runs, then the
+        // tracking row records it.
         try {
-            migrate__exec_all($conn, $m["up"]);
+            migrate__exec_all($conn, $up);
             db::exec($conn, "INSERT INTO _look_migrations (id, applied_at) VALUES (?, ?)", [$id, date::now()]);
-            db::commit($conn);
         } catch ($e) {
-            db::rollback($conn);
             throw "migrate: '" . $id . "' failed: " . error::message($e);
         }
         push($applied, $id);
@@ -108,26 +290,37 @@ function migrate_rollback($conn, $migrations) {
         return "";
     }
     $last = $applied[count($applied) - 1];
-    // A missing "down" is a mistake (silent un-track hides schema drift); an explicit
-    // "down" => "" means "intentionally irreversible" (just un-track, run nothing).
+    // Resolve the down body. Precedence: an explicit "down" always wins. Otherwise a
+    // schema migration auto-generates its down (DROP TABLE / DROP COLUMN / DROP INDEX).
+    // A raw migration with no "down" at all is a mistake — throw rather than silently
+    // un-track (use "down" => "" to mark it intentionally irreversible).
+    $found = false;
     $has_down = false;
+    $is_schema = false;
     $down = "";
+    $target = [];
     foreach ($migrations as $m) {
-        if ($m["id"] == $last && array::contains(array::keys($m), "down")) {
-            $has_down = true;
-            $down = $m["down"];
+        if ($m["id"] == $last) {
+            $found = true;
+            $target = $m;
+            if (array::contains(array::keys($m), "down")) {
+                $has_down = true;
+                $down = $m["down"];
+            }
+            $is_schema = migrate__is_schema($m);
         }
     }
-    if (!$has_down) {
-        throw "migrate: cannot roll back '" . $last . "': no down defined (use \"down\" => \"\" if it is intentionally irreversible)";
+    if ($found && !$has_down) {
+        if ($is_schema) {
+            $down = migrate__gen_down(db::driver($conn), $target);
+        } else {
+            throw "migrate: cannot roll back '" . $last . "': no down defined (use \"down\" => \"\" if it is intentionally irreversible)";
+        }
     }
-    db::begin($conn);
     try {
         migrate__exec_all($conn, $down);
         db::exec($conn, "DELETE FROM _look_migrations WHERE id=?", [$last]);
-        db::commit($conn);
     } catch ($e) {
-        db::rollback($conn);
         throw "migrate: rollback '" . $last . "' failed: " . error::message($e);
     }
     return $last;
