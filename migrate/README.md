@@ -161,6 +161,11 @@ auto-discovery (LOOK has no directory-listing, and explicit beats magic). This i
 counterpart to `php artisan make:migration` / `migrate` / `migrate:rollback` — a plain
 `.lk` you run in the terminal, where you can always see which file runs.
 
+> **Known limitation:** because nothing scans the folder, a migration file you create but
+> forget to add to the list simply **won't run** — it's skipped silently, not flagged.
+> `make` prints the entry precisely so you paste it and don't forget. The migrations that
+> run are exactly the ones in your list, no more.
+
 > Requires a LOOK runtime with `args()`. On an older build, pass the command via the
 > `MIGRATE_CMD` env var instead (`MIGRATE_CMD=up lk migrate.lk`).
 
