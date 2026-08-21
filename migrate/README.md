@@ -164,6 +164,39 @@ counterpart to `php artisan make:migration` / `migrate` / `migrate:rollback` —
 > Requires a LOOK runtime with `args()`. On an older build, pass the command via the
 > `MIGRATE_CMD` env var instead (`MIGRATE_CMD=up lk migrate.lk`).
 
+### Your own CLI — mix migrate with your commands
+
+`migrate_cli` is a convenience. For full control, skip it and write your own dispatch on
+`args()`, calling the module functions (`migrate_run`, `migrate_status`,
+`migrate_rollback`) directly — then you own every command and a module re-install never
+touches your file:
+
+```lk
+# app.lk — your project's CLI, framework-free
+use migrate
+use db
+
+$conn = db::connect(env("DB_DSN"))
+$migrations = [
+    ["id" => "0001_users", "create_table" => "users", "columns" => [
+        "id" => "pk", "email" => "string(255) unique", "created_at" => "datetime"
+    ]]
+]
+
+$a = args()
+$cmd = count($a) > 0 ? $a[0] : "help"
+
+if      ($cmd == "migrate") { migrate_run($conn, $migrations); print("migrated") }
+else if ($cmd == "seed")    { db::exec($conn, "INSERT INTO users (email,created_at) VALUES (?,?)", ["a@x", "2026-01-01 00:00:00"]); print("seeded") }
+else if ($cmd == "fresh")   { db::exec($conn, "DROP TABLE users", []); migrate_run($conn, $migrations); print("fresh") }  # ⚠ dev only — deletes data
+else    { print("usage: lk app.lk [migrate | seed | fresh]"); exit(1) }
+```
+
+```bash
+lk app.lk migrate
+lk app.lk seed
+```
+
 ## API
 
 | Function | Returns | Description |
