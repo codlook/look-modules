@@ -141,14 +141,25 @@ migrate_cli(db::connect(env("DB_DSN")), [
 ```
 
 ```bash
-lk migrate.lk up       # apply pending   (default when no argument)
-lk migrate.lk status   # show applied/pending
-lk migrate.lk down     # roll back the last one
+lk migrate.lk make user   # scaffold a new migration (files + paste-ready entry)
+lk migrate.lk up          # apply pending   (default when no argument)
+lk migrate.lk status      # show applied/pending
+lk migrate.lk down        # roll back the last one
 ```
 
-This is the LOOK counterpart to `php artisan migrate` / `migrate:rollback` — a plain
-`.lk` you run in the terminal. Migrations are explicit data in that file rather than
-auto-discovered from a folder (LOOK has no directory-listing, and explicit beats magic).
+`make` comes with the module — it's a sub-command of `migrate_cli`, so a new module
+version brings it without touching your `migrate.lk`. It scaffolds a **timestamp-named**
+migration (`migrate/20260815_143022_user.sql` + `.down.sql`) and prints the entry to paste
+into your migrations list — both the portable `create_table` schema (recommended) and the
+raw-SQL `file::read` form. Timestamp ids (like Rails/Laravel) need no counter, so the
+missing directory-listing isn't a limitation, and two developers never clash on the same
+number. The name is validated (`^[a-z0-9_]+$`, so `make ../../etc/passwd` is rejected) and
+existing files are never overwritten.
+
+Adding the printed entry to `migrate.lk` is the one manual step — there is no
+auto-discovery (LOOK has no directory-listing, and explicit beats magic). This is the LOOK
+counterpart to `php artisan make:migration` / `migrate` / `migrate:rollback` — a plain
+`.lk` you run in the terminal, where you can always see which file runs.
 
 > Requires a LOOK runtime with `args()`. On an older build, pass the command via the
 > `MIGRATE_CMD` env var instead (`MIGRATE_CMD=up lk migrate.lk`).
@@ -161,7 +172,7 @@ auto-discovered from a folder (LOOK has no directory-listing, and explicit beats
 | `migrate_rollback($conn, $migrations)` | `id` \| `""` | Undo the most recently applied migration (run its `down`, drop its tracking row). `""` if nothing was applied. |
 | `migrate_status($conn, $migrations)` | `[["id"=>.., "applied"=>bool], ...]` | Applied/pending state for each migration. |
 | `migrate_applied($conn)` | `[id, ...]` | Ids already recorded as applied. |
-| `migrate_cli($conn, $migrations)` | *(prints)* | Terminal dispatch on the first CLI arg (`up`/`down`/`status`). |
+| `migrate_cli($conn, $migrations)` | *(prints)* | Terminal dispatch on the first CLI arg (`make <name>`/`up`/`down`/`status`). |
 | `migrate_ddl($driver, $migration)` | `string` | The DDL a schema migration compiles to for `$driver` (`"sqlite"`/`"mysql"`/`"postgres"`) — for inspection/testing without a DB. |
 
 ## Notes

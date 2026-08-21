@@ -3,6 +3,7 @@ use string;
 use date;
 use array;
 use type;
+use file;
 
 // migrate — a tiny, honest schema-migration runner for LOOK.
 // No ORM, no magic: you pass an ordered list of migrations as plain data and
@@ -379,6 +380,46 @@ function migrate_rollback($conn, $migrations) {
     return $last;
 }
 
+// A sortable, collision-free migration id: "<YYYYMMDD_HHMMSS>_<name>". Timestamp-based
+// (like Rails/Laravel) because LOOK can't list a directory — no counter to derive, and
+// two developers scaffolding at once never clash on the same "0004".
+function migrate__timestamp() {
+    $now = date::now();                                  // "2026-06-09 14:32:00"
+    $d = string::replace(string::substr($now, 0, 10), "-", "");
+    $t = string::replace(string::substr($now, 11, 8), ":", "");
+    return $d . "_" . $t;
+}
+
+// Scaffold a migration: `lk migrate.lk make <name>`. Creates the migrate/ file pair and
+// prints the ready-to-paste entry. Two protections: the name is validated (no traversal),
+// and existing files are never overwritten (that would be data loss).
+function migrate__make($name) {
+    if (!string::regex_match($name, "^[a-z0-9_]+$")) {
+        throw "migrate: invalid name '" . $name . "' — use lowercase letters, digits and underscore only";
+    }
+    $id = migrate__timestamp() . "_" . $name;
+    $up = "migrate/" . $id . ".sql";
+    $down = "migrate/" . $id . ".down.sql";
+    if (file::exists($up)) {
+        throw "migrate: '" . $up . "' already exists — refusing to overwrite";
+    }
+    file::put($up, "-- " . $id . " (up)\n-- Raw SQL for a data migration; or leave empty and use the create_table entry below.\n");
+    file::put($down, "-- " . $id . " (down)\n");
+    print("created " . $up);
+    print("created " . $down);
+    print("");
+    print("Add ONE of these to your migrate.lk migrations list:");
+    print("");
+    print("  # portable schema (recommended):");
+    print("  [\"id\" => \"" . $id . "\", \"create_table\" => \"" . $name . "\", \"columns\" => [");
+    print("      \"id\"         => \"pk\",");
+    print("      \"created_at\" => \"datetime\"");
+    print("  ]],");
+    print("");
+    print("  # raw SQL (write it in " . $up . "):");
+    print("  [\"id\" => \"" . $id . "\", \"up\" => file::read(\"" . $up . "\"), \"down\" => file::read(\"" . $down . "\")],");
+}
+
 // Terminal entry point: dispatch on the first CLI argument (up|down|status,
 // default up) and print a human-readable result. A one-line .lk runner becomes a
 // real command:  lk migrate.lk up | lk migrate.lk down | lk migrate.lk status
@@ -399,6 +440,18 @@ function migrate_cli($conn, $migrations) {
         $cmd = $a[0];
     } else {
         $cmd = env("MIGRATE_CMD", "up");
+    }
+    if ($cmd == "make") {
+        $name = "";
+        if (count($a) >= 2) {
+            $name = $a[1];
+        }
+        if (string::len($name) == 0) {
+            print("usage: lk migrate.lk make <name>   e.g. lk migrate.lk make user");
+            return;
+        }
+        migrate__make($name);
+        return;
     }
     if ($cmd == "status") {
         print("Migration status:");
