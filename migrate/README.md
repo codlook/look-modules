@@ -41,14 +41,16 @@ connected to (via `db::driver`). There are exactly three schema operations —
 `create_table`, `add_column`, `add_index` — and **everything else is raw `up` SQL, an
 equal first-class path** (see below). Schema for schema, SQL for data; both are normal.
 
+Columns read top-to-bottom like a struct — `"name" => "type spec"`:
+
 ```lk
 $migrations = [
     ["id" => "0001_users", "create_table" => "users", "columns" => [
-        ["id",         "pk"],                              # auto-increment PK per dialect
-        ["name",       "string", 100],                     # VARCHAR(100)
-        ["email",      "string", 150, ["unique" => true]], # + UNIQUE
-        ["age",        "int",    ["null" => true]],
-        ["created_at", "datetime"]
+        "id"         => "pk",                    # auto-increment PK per dialect
+        "name"       => "string(100)",           # VARCHAR(100) NOT NULL
+        "email"      => "string(150) unique",    # + UNIQUE
+        "age"        => "int null",              # nullable
+        "created_at" => "datetime"
     ]],
     ["id" => "0002_avatar", "add_column" => "users",
         "column" => ["avatar", "string", 255, ["null" => true]]],
@@ -56,13 +58,19 @@ $migrations = [
 ]
 ```
 
-**Column grammar:** `[name, type, size?, opts?]`
-- **types:** `pk string text int bigint bool float datetime date json` — or a raw SQL type
-  string as an escape hatch, e.g. `["price", "DECIMAL(10,2)"]`.
-- **size:** integer VARCHAR length for `string`.
-- **opts:** assoc — `["unique" => true, "default" => …, "null" => true]`. Columns are
-  **NOT NULL by default** (strict-default: most columns are, so you don't repeat it);
-  add `["null" => true]` for a nullable column.
+**Column spec:** `"name" => "<type>[(<size>)] [modifier ...]"`
+- **types:** `pk string int bigint text datetime date bool float json` — or a raw SQL type
+  as an escape hatch, e.g. `"price" => "decimal(10,2)"` (passed through verbatim).
+- **(size):** VARCHAR length for `string` (`"string(255)"`).
+- **modifiers:** `unique` · `null` (nullable) · `default=<val>`. Columns are **NOT NULL by
+  default** (strict-default: most columns are, so you don't repeat it); add `null` to opt
+  out. Compare GORM's `` `gorm:"type:varchar(255);unique;not null"` `` — here it's just
+  `"string(255) unique"`.
+- **fail-loud:** an unknown modifier (a typo like `"uniqe"`) **throws** — it is never
+  silently dropped. Indexes are a separate `add_index` migration, not a column flag.
+
+The explicit array form is also accepted (`["email", "string", 150, ["unique"=>true]]`) —
+use whichever reads better; both compile to the same DDL.
 
 Schema migrations **roll back automatically** — `create_table` → `DROP TABLE`,
 `add_column` → `DROP COLUMN`, `add_index` → `DROP INDEX` (dialect-correct). You never

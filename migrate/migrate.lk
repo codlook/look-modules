@@ -142,6 +142,50 @@ function migrate__quote_default($v) {
     return "" . $v;
 }
 
+// Parse a compact column spec string into a [name, type, size, opts] coldef, so a
+// table reads top-to-bottom like a struct without positional noise:
+//   "email" => "string(255) unique"  ==  ["email", "string", 255, ["unique"=>true]]
+// Grammar: "<type>[(<size>)] [modifier ...]"
+//   type      : pk string int bigint text datetime date bool float json — or a raw SQL
+//               type as an escape hatch (e.g. "decimal(10,2)"), passed through verbatim.
+//   modifiers : unique · null · default=<val>.
+// FAIL-LOUD: an unknown modifier (e.g. a typo "uniqe") THROWS — never silently ignored
+// (a silently-dropped flag is exactly the class this project refuses). A type typo isn't
+// in the known set, so it passes through as raw SQL and the database rejects it loudly.
+function migrate__parse_spec($name, $spec) {
+    $parts = string::split(string::trim($spec), " ");
+    $head = $parts[0];
+    $type = $head;
+    $size = 0;
+    $paren = string::index_of($head, "(");
+    if ($paren >= 0) {
+        $before = string::substr($head, 0, $paren);
+        // Only "string" takes a bare (size); anything else with parens (decimal(10,2))
+        // is a raw SQL type and is left verbatim.
+        if ($before == "string") {
+            $type = "string";
+            $close = string::index_of($head, ")");
+            $size = int(string::substr($head, $paren + 1, $close - $paren - 1));
+        }
+    }
+    $opts = [];
+    $i = 1;
+    while ($i < count($parts)) {
+        $mod = string::trim($parts[$i]);
+        if (string::len($mod) > 0) {
+            $ok = false;
+            if ($mod == "unique") { $opts["unique"] = true; $ok = true; }
+            if ($mod == "null") { $opts["null"] = true; $ok = true; }
+            if (string::starts_with($mod, "default=")) { $opts["default"] = string::substr($mod, 8); $ok = true; }
+            if (!$ok) {
+                throw "migrate: unknown column modifier '" . $mod . "' in \"" . $name . " => " . $spec . "\" (allowed: unique, null, default=...; for an index use a separate add_index)";
+            }
+        }
+        $i = $i + 1;
+    }
+    return [$name, $type, $size, $opts];
+}
+
 // Full DDL for one column: "name TYPE [NOT NULL] [DEFAULT x] [UNIQUE]".
 function migrate__col_ddl($driver, $col) {
     $name = $col[0];
@@ -185,7 +229,13 @@ function migrate__gen_up($driver, $m) {
     $keys = array::keys($m);
     if (array::contains($keys, "create_table")) {
         $cols = [];
-        foreach ($m["columns"] as $col) {
+        // Two column forms, both supported: the compact "name" => "type:size mods"
+        // assoc (reads like a struct), or the explicit [name, type, size, opts] array.
+        foreach ($m["columns"] as $k => $v) {
+            $col = $v;
+            if (type::is_string($v)) {
+                $col = migrate__parse_spec("" . $k, $v);
+            }
             push($cols, migrate__col_ddl($driver, $col));
         }
         return "CREATE TABLE " . $m["create_table"] . " (" . string::join($cols, ", ") . ")";

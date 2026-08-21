@@ -1,9 +1,9 @@
 {
-  "description": "Schema migrations — a declarative table description compiled to the right DDL for MySQL/PostgreSQL/SQLite, plus raw SQL as an equal path. Apply/rollback, tracked, run from the terminal (lk migrate.lk up/down/status). No ORM.",
+  "description": "Schema migrations — declarative columns that read like a struct (\"email\" => \"string(255) unique\"), compiled to the right DDL for MySQL/PostgreSQL/SQLite; unknown modifiers fail loud. Raw SQL an equal path. Apply/rollback, tracked, run from the terminal. No ORM.",
   "tags": ["database", "migration", "schema", "sql"],
   "icon": "🗃️",
   "color": "blue",
   "use": "use migrate",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "codlook"
 }
