@@ -473,6 +473,14 @@ function migrate_cli($conn, $migrations) {
         }
         return;
     }
+    // Only an explicit "up" (or the no-argument default) applies migrations. An
+    // UNKNOWN command must NEVER fall through to up — "up" changes the schema, so a
+    // typo like `lk migrate.lk statuss` would silently migrate. Fail loud instead.
+    if ($cmd != "up") {
+        print("migrate: unknown command '" . $cmd . "'");
+        print("usage: lk migrate.lk [make <name> | up | down | status]");
+        exit(1);
+    }
     $done = migrate_run($conn, $migrations);
     if (count($done) == 0) {
         print("Already up to date.");
