@@ -160,7 +160,10 @@ function migrate__col_ddl($driver, $col) {
     }
     $ddl = $name . " " . migrate__sqltype($driver, $type, $size);
     if ($type != "pk") {
-        if (migrate__opt($opts, "null", true) == false) {
+        // Varsayilan NOT NULL (katı-default ilkesi: cookie/DB-TLS gibi — gevseklik ACIKCA
+        // istenir). Nullable kolon icin ["null"=>true] yaz. Cogu kolon NOT NULL oldugundan
+        // bu ortak durumu sadelestirir (her satira ["null"=>false] yazmaya gerek kalmaz).
+        if (migrate__opt($opts, "null", false) == false) {
             $ddl = $ddl . " NOT NULL";
         }
         if (array::contains(array::keys($opts), "default")) {

@@ -60,7 +60,9 @@ $migrations = [
 - **types:** `pk string text int bigint bool float datetime date json` — or a raw SQL type
   string as an escape hatch, e.g. `["price", "DECIMAL(10,2)"]`.
 - **size:** integer VARCHAR length for `string`.
-- **opts:** assoc — `["null" => false, "unique" => true, "default" => …]`.
+- **opts:** assoc — `["unique" => true, "default" => …, "null" => true]`. Columns are
+  **NOT NULL by default** (strict-default: most columns are, so you don't repeat it);
+  add `["null" => true]` for a nullable column.
 
 Schema migrations **roll back automatically** — `create_table` → `DROP TABLE`,
 `add_column` → `DROP COLUMN`, `add_index` → `DROP INDEX` (dialect-correct). You never
